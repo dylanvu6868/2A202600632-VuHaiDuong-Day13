@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections import Counter
 from statistics import mean
 
@@ -11,6 +12,12 @@ ERRORS: Counter[str] = Counter()
 TRAFFIC: int = 0
 QUALITY_SCORES: list[float] = []
 
+CACHE_HITS: int = 0
+CACHE_SAVINGS_USD: float = 0.0
+
+MAX_TIMESERIES_SAMPLES = 2000
+TIMESERIES: list[dict] = []
+
 
 def record_request(latency_ms: int, cost_usd: float, tokens_in: int, tokens_out: int, quality_score: float) -> None:
     global TRAFFIC
@@ -20,11 +27,46 @@ def record_request(latency_ms: int, cost_usd: float, tokens_in: int, tokens_out:
     REQUEST_TOKENS_IN.append(tokens_in)
     REQUEST_TOKENS_OUT.append(tokens_out)
     QUALITY_SCORES.append(quality_score)
+    _append_sample({
+        "ts": time.time(),
+        "latency_ms": latency_ms,
+        "cost_usd": cost_usd,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "quality_score": quality_score,
+        "error_type": None,
+    })
 
+
+
+def record_cache_hit(saved_cost_usd: float) -> None:
+    global CACHE_HITS, CACHE_SAVINGS_USD
+    CACHE_HITS += 1
+    CACHE_SAVINGS_USD += saved_cost_usd
 
 
 def record_error(error_type: str) -> None:
     ERRORS[error_type] += 1
+    _append_sample({
+        "ts": time.time(),
+        "latency_ms": None,
+        "cost_usd": None,
+        "tokens_in": None,
+        "tokens_out": None,
+        "quality_score": None,
+        "error_type": error_type,
+    })
+
+
+def _append_sample(sample: dict) -> None:
+    TIMESERIES.append(sample)
+    if len(TIMESERIES) > MAX_TIMESERIES_SAMPLES:
+        del TIMESERIES[: len(TIMESERIES) - MAX_TIMESERIES_SAMPLES]
+
+
+def timeseries(window_seconds: int = 3600) -> list[dict]:
+    cutoff = time.time() - window_seconds
+    return [s for s in TIMESERIES if s["ts"] >= cutoff]
 
 
 
@@ -49,4 +91,6 @@ def snapshot() -> dict:
         "tokens_out_total": sum(REQUEST_TOKENS_OUT),
         "error_breakdown": dict(ERRORS),
         "quality_avg": round(mean(QUALITY_SCORES), 4) if QUALITY_SCORES else 0.0,
+        "cache_hits": CACHE_HITS,
+        "cache_savings_usd": round(CACHE_SAVINGS_USD, 6),
     }

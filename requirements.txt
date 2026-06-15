@@ -5,4 +5,5 @@ structlog==25.4.0
 python-dotenv==1.1.0
 httpx==0.28.1
 langfuse==3.2.1
+pyyaml==6.0.3
 pytest==8.3.5

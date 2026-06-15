@@ -1,0 +1,4 @@
+[ 1002323ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/metrics:0
+[ 1002324ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/metrics/timeseries?window_seconds=3600:0
+[ 1022306ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/metrics:0
+[ 1022308ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/metrics/timeseries?window_seconds=3600:0

@@ -1,16 +1,36 @@
 service: day13-observability-lab
 window: 28d
+
+# Measured baseline (local load test, 30 normal requests + incident scenarios):
+#   latency_p50 = 150ms,  latency_p95 = 150ms          (no incident)
+#   latency_p95 jumps to ~2650ms when `rag_slow` is enabled on ~12% of traffic
+#   error_rate  = 0%      -> ~11.1% when `tool_fail` is enabled
+#   avg_cost_usd/request = 0.0020 -> 0.0027 when `cost_spike` is enabled (+35%)
+#   quality_score_avg = 0.875 (no incident)
 slis:
   latency_p95_ms:
     objective: 3000
     target: 99.5
-    note: Replace with your group's target
+    note: >
+      Baseline p95 is 150ms (20x headroom). A single rag_slow incident alone
+      pushes p95 to ~2650ms, so 3000ms ~= "one rag_slow-class incident worth"
+      of degradation before the SLO is breached.
   error_rate_pct:
     objective: 2
     target: 99.0
+    note: >
+      Baseline error rate is 0%. A tool_fail incident alone produces ~11%,
+      so 2% gives an early-warning margin well before a full outage.
   daily_cost_usd:
     objective: 2.5
     target: 100.0
+    note: >
+      At ~$0.002-0.0027/request, 2.5 USD/day allows roughly 900-1200 requests/day
+      under normal-to-mildly-degraded conditions. Re-baseline against your
+      team's real traffic volume before the live demo.
   quality_score_avg:
     objective: 0.75
     target: 95.0
+    note: >
+      Baseline measured 0.875, so 0.75 leaves ~0.12 of margin before the
+      objective is hit (heuristic penalizes empty retrieval / redacted answers).

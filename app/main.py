@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from structlog.contextvars import bind_contextvars
 
 from .agent import LabAgent
 from .incidents import disable, enable, status
-from .logging_config import configure_logging, get_logger
-from .metrics import record_error, snapshot
+from .logging_config import audit_log, configure_logging, get_logger
+from .metrics import record_error, snapshot, timeseries
 from .middleware import CorrelationIdMiddleware
 from .pii import hash_user_id, summarize_text
 from .schemas import ChatRequest, ChatResponse
@@ -42,11 +47,26 @@ async def metrics() -> dict:
     return snapshot()
 
 
+@app.get("/metrics/timeseries")
+async def metrics_timeseries(window_seconds: int = 3600) -> dict:
+    return {"window_seconds": window_seconds, "samples": timeseries(window_seconds)}
+
+
+@app.get("/dashboard")
+async def dashboard() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "static" / "dashboard.html")
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    # TODO: Enrich logs with request context (user_id_hash, session_id, feature, model, env)
-    # bind_contextvars(...)
-    
+    bind_contextvars(
+        user_id_hash=hash_user_id(body.user_id),
+        session_id=body.session_id,
+        feature=body.feature,
+        model=agent.model,
+        env=os.getenv("APP_ENV", "dev"),
+    )
+
     log.info(
         "request_received",
         service="api",
@@ -66,6 +86,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
             cost_usd=result.cost_usd,
+            cache_hit=result.cache_hit,
             payload={"answer_preview": summarize_text(result.answer)},
         )
         return ChatResponse(
@@ -90,20 +111,32 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
 
 
 @app.post("/incidents/{name}/enable")
-async def enable_incident(name: str) -> JSONResponse:
+async def enable_incident(request: Request, name: str) -> JSONResponse:
     try:
         enable(name)
         log.warning("incident_enabled", service="control", payload={"name": name})
+        audit_log(
+            "incident_enabled",
+            name=name,
+            correlation_id=request.state.correlation_id,
+            actor="api",
+        )
         return JSONResponse({"ok": True, "incidents": status()})
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/incidents/{name}/disable")
-async def disable_incident(name: str) -> JSONResponse:
+async def disable_incident(request: Request, name: str) -> JSONResponse:
     try:
         disable(name)
         log.warning("incident_disabled", service="control", payload={"name": name})
+        audit_log(
+            "incident_disabled",
+            name=name,
+            correlation_id=request.state.correlation_id,
+            actor="api",
+        )
         return JSONResponse({"ok": True, "incidents": status()})
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

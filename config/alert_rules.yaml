@@ -1,19 +1,54 @@
 alerts:
   - name: high_latency_p95
     severity: P2
-    condition: latency_p95_ms > 5000 for 30m
+    condition: latency_p95_ms > 3000 for 10m
+    slo_ref: latency_p95_ms
     type: symptom-based
     owner: team-oncall
     runbook: docs/alerts.md#1-high-latency-p95
+    note: >
+      Threshold lowered from 5000ms to 3000ms to match the SLO objective
+      (config/slo.yaml) - the alert now fires AT the moment the SLO is
+      breached, not 2000ms after. Window shortened from 30m to 10m because
+      a rag_slow incident is a step-change visible within minutes, not a
+      slow drift.
+
   - name: high_error_rate
     severity: P1
-    condition: error_rate_pct > 5 for 5m
+    condition: error_rate_pct > 3 for 5m
+    slo_ref: error_rate_pct
     type: symptom-based
     owner: team-oncall
     runbook: docs/alerts.md#2-high-error-rate
+    note: >
+      Threshold lowered from 5% to 3% - set between the SLO objective (2%)
+      and the observed tool_fail incident rate (~11.1%), giving early
+      warning while staying above normal noise (baseline = 0%).
+
   - name: cost_budget_spike
     severity: P2
-    condition: hourly_cost_usd > 2x_baseline for 15m
+    condition: hourly_cost_usd > 2x_baseline_hourly_cost_usd for 15m
+    slo_ref: daily_cost_usd
     type: symptom-based
     owner: finops-owner
     runbook: docs/alerts.md#3-cost-budget-spike
+    baseline_hourly_cost_usd: 0.1  # placeholder = avg_cost_usd/request (0.002) x ~50 req/hour; replace with your team's measured traffic rate
+    note: >
+      A cost_spike incident raised avg cost/request from ~0.0020 to ~0.0027
+      (+35%). Sustained over an hour at normal traffic this compounds past
+      2x baseline, so the 15m window catches it without flapping on single
+      expensive requests.
+
+  - name: quality_score_drop
+    severity: P3
+    condition: quality_score_avg < 0.70 for 15m
+    slo_ref: quality_score_avg
+    type: symptom-based
+    owner: team-oncall
+    runbook: docs/alerts.md#4-quality-score-drop
+    note: >
+      New alert (not in the original template). SLO objective is 0.75;
+      baseline measured 0.875. Threshold set slightly below the objective
+      to avoid flapping on small natural dips while still catching real
+      quality regressions (e.g. retrieval returning 0 docs, or answers
+      containing [REDACTED_*] markers).

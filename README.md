@@ -46,7 +46,44 @@ python scripts/inject_incident.py --scenario rag_slow
 
 # Check your implementation progress
 python scripts/validate_logs.py
+
+# Evaluate alert_rules.yaml against the live /metrics snapshot
+python scripts/check_alerts.py
 ```
+
+## Restarting from scratch (after the server was stopped)
+
+If you've closed the terminal / shut down the machine and need to bring everything back up:
+
+```bash
+# 1. Activate the existing virtualenv (created once via `python -m venv .venv`)
+source .venv/bin/activate          # Git Bash / macOS / Linux
+# .venv\Scripts\activate            # Windows PowerShell / cmd
+
+# 2. (Optional) wipe generated logs for a clean validate_logs.py run
+rm data/logs.jsonl data/audit.jsonl
+# in-memory /metrics + /metrics/timeseries counters reset automatically on restart
+
+# 3. Start the API server (keep this terminal open)
+uvicorn app.main:app --reload
+
+# 4. In a second terminal, generate traffic
+python scripts/load_test.py
+python scripts/load_test.py --concurrency 5
+
+# 5. Open the dashboard
+#    http://127.0.0.1:8000/dashboard
+#    (auto-refreshes every 20s; use "Refresh now" / "Pause auto-refresh" as needed)
+
+# 6. Re-validate and check alerts
+python scripts/validate_logs.py
+python scripts/check_alerts.py
+```
+
+Step 2 is only needed if you want metrics/`validate_logs.py` to start from zero again; the
+app works fine without it (it just appends to the existing `data/logs.jsonl`/`data/audit.jsonl`).
+The "How to run / restart this lab from scratch" panel at the bottom of `/dashboard` repeats
+this quick guide for convenience.
 
 ## Repo map
 

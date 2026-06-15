@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Day 13 Observability Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light dark;
+    --accent: #2c5282;
+    --green: #16a34a;
+    --red: #dc2626;
+    --bg: #f1f3f6;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Inter", system-ui, sans-serif; margin: 0; padding: 1.5rem 2rem 2.5rem; background: var(--bg); color: #1a1a1a; }
+  h1 { margin: 0 0 0.25rem; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+  .sub { color: #6b7280; margin-bottom: 1.25rem; font-size: 0.9rem; }
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 55%, #3b6ea5 100%);
+    color: #fff; margin: -1.5rem -2rem 1.5rem; padding: 1.5rem 2rem;
+    border-radius: 0 0 16px 16px; box-shadow: 0 4px 16px rgba(30, 58, 95, 0.25);
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 1rem;
+  }
+  .header h1 { color: #fff; }
+  .header .sub { color: #cbd5e1; margin-bottom: 0; }
+  .header .sub code { background: rgba(255,255,255,0.15); color: #fff; }
+  code { background: #e5e7eb; padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.85em; }
+
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(255,255,255,0.12);
+    padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; color: #fff;
+  }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); animation: pulse 1.8s infinite; }
+  .live-dot.paused { background: #9ca3af; animation: none; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); }
+    70% { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  }
+
+  /* --- Controls bar --- */
+  .controls {
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 0.6rem 1rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .controls button {
+    font-family: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px;
+    padding: 0.4rem 0.85rem; transition: background 0.15s, border-color 0.15s;
+  }
+  .controls button:hover { background: #f3f4f6; border-color: #9ca3af; }
+  .controls button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .controls button.primary:hover { background: #244a73; }
+  .controls .countdown-wrap { flex: 1 1 160px; min-width: 140px; }
+  .controls .countdown-label { font-size: 0.75rem; color: #6b7280; margin-bottom: 0.2rem; }
+  .countdown-bar { height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+  .countdown-fill { height: 100%; background: linear-gradient(90deg, #4caf50, #2196f3); width: 100%; transition: width 1s linear; }
+  .controls .last-updated { font-size: 0.8rem; color: #6b7280; margin-left: auto; white-space: nowrap; }
+
+  /* --- KPI cards --- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.85rem; margin-bottom: 1.5rem; }
+  .kpi {
+    background: #fff; border-radius: 12px; padding: 0.95rem 1.1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    border-left: 5px solid #9ca3af; transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative; overflow: hidden;
+  }
+  .kpi:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+  .kpi.ok { border-left-color: var(--green); }
+  .kpi.breach { border-left-color: var(--red); }
+  .kpi .icon { position: absolute; top: 0.7rem; right: 0.8rem; font-size: 1.3rem; opacity: 0.5; }
+  .kpi .label { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .kpi .value { font-size: 1.65rem; font-weight: 800; margin: 0.2rem 0; transition: color 0.2s; }
+  .kpi .target { font-size: 0.78rem; color: #9ca3af; }
+  .kpi .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; margin-top: 0.35rem; letter-spacing: 0.03em; }
+  .kpi.ok .badge { background: #dcfce7; color: #15803d; }
+  .kpi.breach .badge { background: #fee2e2; color: #b91c1c; }
+
+  /* --- Empty state --- */
+  .empty-state {
+    display: none; background: #fef9c3; border: 1px solid #fde68a; color: #854d0e;
+    border-radius: 10px; padding: 0.85rem 1.1rem; margin-bottom: 1.25rem; font-size: 0.88rem;
+  }
+  .empty-state code { background: rgba(0,0,0,0.06); }
+
+  /* --- Panels / charts --- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; }
+  .panel {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 0.9rem 1.15rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: box-shadow 0.15s ease;
+  }
+  .panel:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .panel h2 { font-size: 0.98rem; margin: 0 0 0.6rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+  .panel canvas { max-height: 240px; }
+  .unit { color: #9ca3af; font-size: 0.78rem; font-weight: 400; }
+  #status { font-size: 0.85rem; }
+
+  /* --- Restart guide --- */
+  details.guide {
+    margin-top: 1.5rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+    padding: 0.9rem 1.15rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  details.guide summary { cursor: pointer; font-weight: 700; font-size: 0.95rem; }
+  details.guide summary:hover { color: var(--accent); }
+  details.guide pre {
+    background: #0f172a; color: #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px;
+    overflow-x: auto; font-size: 0.8rem; line-height: 1.55; margin: 0.6rem 0;
+  }
+  details.guide p { font-size: 0.85rem; color: #4b5563; margin: 0.5rem 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>Day 13 Observability Lab &mdash; Dashboard</h1>
+    <div class="sub">
+      Source: <code>/metrics</code> + <code>/metrics/timeseries</code> &middot;
+      SLO thresholds from <code>config/slo.yaml</code> &middot; last-1h window
+    </div>
+  </div>
+  <span class="live-pill"><span class="live-dot" id="live-dot"></span><span id="status">loading...</span></span>
+</div>
+
+<div class="controls">
+  <button class="primary" id="btn-refresh">&#x21bb; Refresh now</button>
+  <button id="btn-toggle">&#x23f8; Pause auto-refresh</button>
+  <div class="countdown-wrap">
+    <div class="countdown-label" id="countdown-label">Next refresh in 20s</div>
+    <div class="countdown-bar"><div class="countdown-fill" id="countdown-fill"></div></div>
+  </div>
+  <span class="last-updated" id="last-updated">never updated</span>
+</div>
+
+<div class="empty-state" id="empty-state">
+  No requests recorded yet. Run <code>python scripts/load_test.py</code> (or <code>--concurrency 5</code>) against the running app
+  to generate traffic, then this dashboard will populate automatically. See the "How to run / restart from scratch" guide below.
+</div>
+
+<div class="kpis" id="kpis">
+  <div class="kpi" id="kpi-latency">
+    <span class="icon">&#x23f1;&#xfe0f;</span>
+    <div class="label">Latency P95</div>
+    <div class="value">&ndash;</div>
+    <div class="target">SLO &lt; 3000ms</div>
+    <div class="badge">loading</div>
+  </div>
+  <div class="kpi" id="kpi-errors">
+    <span class="icon">&#x1f6a6;</span>
+    <div class="label">Error Rate</div>
+    <div class="value">&ndash;</div>
+    <div class="target">SLO &lt; 2%</div>
+    <div class="badge">loading</div>
+  </div>
+  <div class="kpi" id="kpi-cost">
+    <span class="icon">&#x1f4b0;</span>
+    <div class="label">Avg Cost / Request</div>
+    <div class="value">&ndash;</div>
+    <div class="target">total: $0.0000</div>
+    <div class="badge">loading</div>
+  </div>
+  <div class="kpi" id="kpi-quality">
+    <span class="icon">&#x2728;</span>
+    <div class="label">Quality Score Avg</div>
+    <div class="value">&ndash;</div>
+    <div class="target">SLO &ge; 0.75</div>
+    <div class="badge">loading</div>
+  </div>
+  <div class="kpi" id="kpi-cache">
+    <span class="icon">&#x1f4be;</span>
+    <div class="label">Cache Savings (Bonus)</div>
+    <div class="value">&ndash;</div>
+    <div class="target">0 hits</div>
+    <div class="badge">loading</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>1. Latency P50 / P95 / P99 <span class="unit">(ms, SLO P95 &lt; 3000ms)</span></h2>
+    <canvas id="chart-latency"></canvas>
+  </div>
+  <div class="panel">
+    <h2>2. Traffic <span class="unit">(requests / minute)</span></h2>
+    <canvas id="chart-traffic"></canvas>
+  </div>
+  <div class="panel">
+    <h2>3. Error rate &amp; breakdown <span class="unit">(count by type; SLO &lt; 2%)</span></h2>
+    <div id="error-rate-readout" style="font-size:1.1rem; font-weight:600; margin-bottom:0.25rem;"></div>
+    <canvas id="chart-errors"></canvas>
+  </div>
+  <div class="panel">
+    <h2>4. Cost over time <span class="unit">(USD, cumulative, SLO &lt; 2.5/day)</span></h2>
+    <canvas id="chart-cost"></canvas>
+  </div>
+  <div class="panel">
+    <h2>5. Tokens in / out <span class="unit">(tokens / request)</span></h2>
+    <canvas id="chart-tokens"></canvas>
+  </div>
+  <div class="panel">
+    <h2>6. Quality proxy <span class="unit">(0-1, SLO &gt;= 0.75)</span></h2>
+    <canvas id="chart-quality"></canvas>
+  </div>
+</div>
+
+<details class="guide">
+  <summary>How to run / restart this lab from scratch</summary>
+  <p><strong>1. Start the API server</strong> (from the repo root, with the virtualenv created and <code>requirements.txt</code> installed):</p>
+  <pre>.venv\Scripts\python.exe -m uvicorn app.main:app --reload</pre>
+  <p>Keep this terminal open &mdash; the dashboard needs it running at <code>http://127.0.0.1:8000</code>.</p>
+  <p><strong>2. (Optional) Reset to a clean slate</strong> &mdash; stop the server first, then delete the generated log files
+  so <code>validate_logs.py</code> and this dashboard start from zero:</p>
+  <pre>rm data/logs.jsonl data/audit.jsonl</pre>
+  <p>Restart the server (step 1) afterwards &mdash; in-memory <code>/metrics</code> counters reset automatically on restart.</p>
+  <p><strong>3. Generate traffic</strong> (in a second terminal):</p>
+  <pre>.venv\Scripts\python.exe scripts/load_test.py
+.venv\Scripts\python.exe scripts/load_test.py --concurrency 5</pre>
+  <p><strong>4. (Optional) Inject an incident</strong> to see the dashboard/alerts react, then disable it again:</p>
+  <pre>.venv\Scripts\python.exe scripts/inject_incident.py --scenario rag_slow
+.venv\Scripts\python.exe scripts/inject_incident.py --scenario rag_slow --disable</pre>
+  <p><strong>5. Open this dashboard</strong> at <code>http://127.0.0.1:8000/dashboard</code> &mdash; it auto-refreshes
+  every 20s (toggle with the "Pause auto-refresh" button above, or hit "Refresh now").</p>
+  <p><strong>6. Validate &amp; check alerts:</strong></p>
+  <pre>.venv\Scripts\python.exe scripts/validate_logs.py
+.venv\Scripts\python.exe scripts/check_alerts.py</pre>
+  <p>See <code>README.md</code> for the full setup (creating the venv, installing dependencies, <code>.env</code>) and
+  <code>docs/alerts.md</code> for alert details.</p>
+</details>
+
+<script>
+const REFRESH_MS = 20000;
+const WINDOW_SECONDS = 3600;
+
+const SLO = {
+  latency_p95_ms: 3000,
+  error_rate_pct: 2,
+  daily_cost_usd: 2.5,
+  quality_score_avg: 0.75,
+};
+
+function thresholdLine(value, color, labelText) {
+  return {
+    type: "line",
+    borderColor: color,
+    borderDash: [6, 6],
+    borderWidth: 2,
+    label: { display: true, content: labelText, position: "end", color },
+    scaleID: "y",
+    value,
+  };
+}
+
+function bucketByMinute(samples, valueKey, reducer) {
+  const buckets = new Map();
+  for (const s of samples) {
+    if (s[valueKey] === null || s[valueKey] === undefined) continue;
+    const minute = Math.floor(s.ts / 60) * 60;
+    if (!buckets.has(minute)) buckets.set(minute, []);
+    buckets.get(minute).push(s[valueKey]);
+  }
+  const keys = [...buckets.keys()].sort((a, b) => a - b);
+  return keys.map((k) => ({
+    label: new Date(k * 1000).toLocaleTimeString(),
+    value: reducer(buckets.get(k)),
+  }));
+}
+
+const sum = (arr) => arr.reduce((a, b) => a + b, 0);
+const avg = (arr) => sum(arr) / arr.length;
+
+const charts = {};
+
+function makeChart(id, config) {
+  const ctx = document.getElementById(id).getContext("2d");
+  charts[id] = new Chart(ctx, config);
+}
+
+makeChart("chart-latency", {
+  type: "bar",
+  data: { labels: ["P50", "P95", "P99"], datasets: [{ label: "ms", data: [0, 0, 0], backgroundColor: ["#4caf50", "#ff9800", "#f44336"] }] },
+  options: {
+    plugins: { annotation: { annotations: { slo: thresholdLine(SLO.latency_p95_ms, "#f44336", "P95 SLO 3000ms") } } },
+    scales: { y: { beginAtZero: true, title: { display: true, text: "ms" } } },
+  },
+});
+
+makeChart("chart-traffic", {
+  type: "line",
+  data: { labels: [], datasets: [{ label: "requests/min", data: [], borderColor: "#2196f3", backgroundColor: "rgba(33,150,243,0.12)", fill: true, tension: 0.3 }] },
+  options: { scales: { y: { beginAtZero: true, title: { display: true, text: "requests" } } } },
+});
+
+makeChart("chart-errors", {
+  type: "bar",
+  data: { labels: [], datasets: [{ label: "error count", data: [], backgroundColor: "#f44336" }] },
+  options: { scales: { y: { beginAtZero: true, title: { display: true, text: "count" }, ticks: { precision: 0 } } } },
+});
+
+makeChart("chart-cost", {
+  type: "line",
+  data: { labels: [], datasets: [{ label: "cumulative cost (USD)", data: [], borderColor: "#9c27b0", backgroundColor: "rgba(156,39,176,0.12)", fill: true, tension: 0.3 }] },
+  options: { scales: { y: { beginAtZero: true, title: { display: true, text: "USD" } } } },
+});
+
+makeChart("chart-tokens", {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      { label: "tokens in", data: [], borderColor: "#00bcd4", tension: 0.3 },
+      { label: "tokens out", data: [], borderColor: "#ff5722", tension: 0.3 },
+    ],
+  },
+  options: { scales: { y: { beginAtZero: true, title: { display: true, text: "tokens" } } } },
+});
+
+makeChart("chart-quality", {
+  type: "line",
+  data: { labels: [], datasets: [{ label: "quality score", data: [], borderColor: "#4caf50", backgroundColor: "rgba(76,175,80,0.12)", fill: true, tension: 0.3 }] },
+  options: {
+    plugins: { annotation: { annotations: { slo: thresholdLine(SLO.quality_score_avg, "#f44336", "SLO 0.75") } } },
+    scales: { y: { min: 0, max: 1, title: { display: true, text: "score" } } },
+  },
+});
+
+function setKpi(id, value, target, ok) {
+  const el = document.getElementById(id);
+  el.classList.remove("ok", "breach");
+  el.classList.add(ok ? "ok" : "breach");
+  el.querySelector(".value").textContent = value;
+  el.querySelector(".target").textContent = target;
+  const badge = el.querySelector(".badge");
+  badge.textContent = ok ? "OK" : "SLO BREACH";
+}
+
+async function refresh() {
+  try {
+    const [snap, ts] = await Promise.all([
+      fetch("/metrics").then((r) => r.json()),
+      fetch(`/metrics/timeseries?window_seconds=${WINDOW_SECONDS}`).then((r) => r.json()),
+    ]);
+    const samples = ts.samples;
+
+    // KPI summary row
+    const errorEntriesForKpi = Object.entries(snap.error_breakdown || {});
+    const totalErrorsForKpi = sum(errorEntriesForKpi.map(([, c]) => c));
+    const totalReqForKpi = snap.traffic + totalErrorsForKpi;
+    const errRatePct = totalReqForKpi > 0 ? (totalErrorsForKpi / totalReqForKpi) * 100 : 0;
+
+    document.getElementById("empty-state").style.display = totalReqForKpi === 0 ? "block" : "none";
+
+    setKpi("kpi-latency", `${snap.latency_p95} ms`, "SLO < 3000ms", snap.latency_p95 < SLO.latency_p95_ms);
+    setKpi("kpi-errors", `${errRatePct.toFixed(1)}%`, "SLO < 2%", errRatePct < SLO.error_rate_pct);
+    setKpi("kpi-cost", `$${snap.avg_cost_usd.toFixed(4)}`, `total: $${snap.total_cost_usd.toFixed(4)} (SLO < $2.5/day)`, true);
+    setKpi("kpi-quality", `${snap.quality_avg}`, "SLO >= 0.75", snap.quality_avg >= SLO.quality_score_avg);
+    setKpi(
+      "kpi-cache",
+      `$${(snap.cache_savings_usd || 0).toFixed(4)}`,
+      `${snap.cache_hits || 0} cache hit(s) avoided LLM cost`,
+      true
+    );
+
+    // 1. Latency
+    charts["chart-latency"].data.datasets[0].data = [snap.latency_p50, snap.latency_p95, snap.latency_p99];
+    charts["chart-latency"].update();
+
+    // 2. Traffic per minute
+    const traffic = bucketByMinute(samples, "latency_ms", (v) => v.length);
+    charts["chart-traffic"].data.labels = traffic.map((b) => b.label);
+    charts["chart-traffic"].data.datasets[0].data = traffic.map((b) => b.value);
+    charts["chart-traffic"].update();
+
+    // 3. Error breakdown + rate
+    const errorEntries = Object.entries(snap.error_breakdown || {});
+    const totalErrors = sum(errorEntries.map(([, c]) => c));
+    const totalRequests = snap.traffic + totalErrors;
+    const errorRatePct = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
+    charts["chart-errors"].data.labels = errorEntries.map(([k]) => k);
+    charts["chart-errors"].data.datasets[0].data = errorEntries.map(([, c]) => c);
+    charts["chart-errors"].update();
+    const readout = document.getElementById("error-rate-readout");
+    readout.textContent = `Overall error rate: ${errorRatePct.toFixed(1)}% (SLO < ${SLO.error_rate_pct}%)`;
+    readout.style.color = errorRatePct > SLO.error_rate_pct ? "#f44336" : "#4caf50";
+
+    // 4. Cost over time (cumulative)
+    let cumulative = 0;
+    const costPoints = samples
+      .filter((s) => s.cost_usd !== null && s.cost_usd !== undefined)
+      .map((s) => {
+        cumulative += s.cost_usd;
+        return { label: new Date(s.ts * 1000).toLocaleTimeString(), value: cumulative };
+      });
+    charts["chart-cost"].data.labels = costPoints.map((p) => p.label);
+    charts["chart-cost"].data.datasets[0].data = costPoints.map((p) => p.value);
+    charts["chart-cost"].update();
+
+    // 5. Tokens in/out per minute (avg)
+    const tokensIn = bucketByMinute(samples, "tokens_in", avg);
+    const tokensOut = bucketByMinute(samples, "tokens_out", avg);
+    charts["chart-tokens"].data.labels = tokensIn.map((b) => b.label);
+    charts["chart-tokens"].data.datasets[0].data = tokensIn.map((b) => b.value);
+    charts["chart-tokens"].data.datasets[1].data = tokensOut.map((b) => b.value);
+    charts["chart-tokens"].update();
+
+    // 6. Quality proxy over time
+    const quality = samples.filter((s) => s.quality_score !== null && s.quality_score !== undefined);
+    charts["chart-quality"].data.labels = quality.map((s) => new Date(s.ts * 1000).toLocaleTimeString());
+    charts["chart-quality"].data.datasets[0].data = quality.map((s) => s.quality_score);
+    charts["chart-quality"].update();
+
+    document.getElementById("status").textContent = "Live";
+    document.getElementById("last-updated").textContent =
+      `traffic=${snap.traffic} | p95=${snap.latency_p95}ms | avg_cost=$${snap.avg_cost_usd} | quality_avg=${snap.quality_avg} | updated ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    document.getElementById("status").textContent = "Error";
+    document.getElementById("last-updated").textContent = "error loading metrics: " + e;
+  }
+}
+
+// --- Auto-refresh controls: countdown bar, pause/resume, manual refresh ---
+let autoRefreshEnabled = true;
+let secondsLeft = REFRESH_MS / 1000;
+const countdownFill = document.getElementById("countdown-fill");
+const countdownLabel = document.getElementById("countdown-label");
+const liveDot = document.getElementById("live-dot");
+const btnToggle = document.getElementById("btn-toggle");
+const btnRefresh = document.getElementById("btn-refresh");
+
+function renderCountdown() {
+  if (!autoRefreshEnabled) {
+    countdownLabel.textContent = "Auto-refresh paused";
+    countdownFill.style.width = "0%";
+    return;
+  }
+  countdownLabel.textContent = `Next refresh in ${secondsLeft}s`;
+  countdownFill.style.width = `${(secondsLeft / (REFRESH_MS / 1000)) * 100}%`;
+}
+
+function tick() {
+  if (!autoRefreshEnabled) return;
+  secondsLeft -= 1;
+  if (secondsLeft <= 0) {
+    refresh();
+    secondsLeft = REFRESH_MS / 1000;
+  }
+  renderCountdown();
+}
+
+btnToggle.addEventListener("click", () => {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  liveDot.classList.toggle("paused", !autoRefreshEnabled);
+  btnToggle.innerHTML = autoRefreshEnabled ? "&#x23f8; Pause auto-refresh" : "&#x25b6; Resume auto-refresh";
+  secondsLeft = REFRESH_MS / 1000;
+  renderCountdown();
+});
+
+btnRefresh.addEventListener("click", () => {
+  refresh();
+  secondsLeft = REFRESH_MS / 1000;
+  renderCountdown();
+});
+
+refresh();
+renderCountdown();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

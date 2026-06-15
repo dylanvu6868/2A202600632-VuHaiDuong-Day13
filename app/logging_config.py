@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ from structlog.contextvars import merge_contextvars
 from .pii import scrub_text
 
 LOG_PATH = Path(os.getenv("LOG_PATH", "data/logs.jsonl"))
+AUDIT_LOG_PATH = Path(os.getenv("AUDIT_LOG_PATH", "data/audit.jsonl"))
 
 
 class JsonlFileProcessor:
@@ -42,8 +45,7 @@ def configure_logging() -> None:
             merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True, key="ts"),
-            # TODO: Register your PII scrubbing processor here
-            # scrub_event,
+            scrub_event,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             JsonlFileProcessor(),
@@ -57,3 +59,16 @@ def configure_logging() -> None:
 
 def get_logger() -> structlog.typing.FilteringBoundLogger:
     return structlog.get_logger()
+
+
+def audit_log(event: str, **fields: Any) -> None:
+    """Write a control-plane event to a separate audit trail (data/audit.jsonl).
+
+    Kept independent from the application JSON logs so that security-relevant
+    actions (e.g. incident toggles) can be retained/reviewed on their own
+    retention policy.
+    """
+    AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    record = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **fields}
+    with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
